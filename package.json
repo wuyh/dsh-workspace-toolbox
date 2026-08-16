@@ -1,6 +1,6 @@
 {
   "name": "dsh-workspace-files",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "DSH Web 工作区文件管理器：面包屑目录浏览、全工作区搜索、VS Code 风格预览与语法高亮。",
   "type": "module",
   "license": "MIT",
@@ -29,12 +29,25 @@
     "README.md",
     "LICENSE"
   ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.build.json && node scripts/build-client.mjs",
+    "check:client": "node scripts/build-client.mjs --check",
+    "prepare": "npm run build"
+  },
   "peerDependencies": {
     "react": "^18.2.0",
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-conversation": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.6"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@types/node": "^24.0.0",
+    "@types/react": "^18.3.0",
+    "react": "^18.2.0",
+    "typescript": "^5.6.0"
   },
   "dsh": {
     "bundle": {

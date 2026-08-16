@@ -29,7 +29,7 @@ DSH Web UI 的工作区文件管理器插件。在会话视图栏的“轨迹”
 要求 DSH `0.1.0-rc.6` 或兼容的 DSH Web profile。通过官方 profile 插件流安装：
 
 ```bash
-dsh plugin --profile web add https://github.com/<owner>/dsh-workspace-files/archive/refs/tags/v0.1.0.tar.gz
+dsh plugin --profile web add https://github.com/wuyh/dsh-workspace-files/archive/refs/tags/v0.2.0.tar.gz
 ```
 
 安装完成后**重启 Web profile** 生效（`dsh web`），在会话顶部的视图标签中点击“文件”即可。
@@ -42,13 +42,51 @@ dsh plugin --profile web add https://github.com/<owner>/dsh-workspace-files/arch
 
 ## 仓库结构
 
+源码在 `src/`（TypeScript，按职责拆分为可读的小模块），构建产物在 `lib/`（随 tag 提交，安装 tag 归档时直接使用构建产物，无需执行构建脚本）：
+
 ```text
-lib/
-  index.js      Host 入口：工作区解析 + 4 个只读 HTTP 路由
-  client.js     浏览器入口：面包屑浏览 + 搜索 + 预览 + 语法高亮
-cordis.patch.yml
-package.json
+src/
+  index.ts            Host 入口：注册 4 个只读 HTTP 路由
+  contract.ts         Host/Client 共享的路由与参数名契约
+  host/
+    services.ts       fs/agents/webServer 等最小类型面 + Context 扩展
+    workspace.ts      会话工作区根目录解析（agent cwd → session cwd → 沙箱根）
+    files.ts          单层列表 / 全工作区搜索 / 带边界的只读预览
+  client/
+    index.ts          浏览器入口：注册“文件”视图页签
+    files-view.ts     视图组件：面包屑导航、搜索、预览、状态持久化
+    rpc.ts            Host 路由的同源 fetch 封装
+    highlight.ts      轻量语法高亮（14 种语言，VS Code Dark+ 配色）
+    icons.ts          按扩展名的彩色类型图标
+    styles.ts         插件样式与幂等注入
+    types.ts          Client 侧线格式与服务面类型
+scripts/
+  build-client.mjs    tsc API 进程内打包 client 为 ModuleLoader bundle
+cordis.patch.yml      组合包 patch：把 Host 行挂进 profile
+lib/                  构建产物（tsc 输出 + client bundle，随 tag 提交）
 ```
+
+## 开发
+
+要求 Node.js 18+ 和 pnpm：
+
+```bash
+pnpm install
+
+# TypeScript 类型检查
+pnpm run typecheck
+
+# 构建 Host（tsc）与浏览器 bundle（scripts/build-client.mjs）
+pnpm run build
+
+# 校验 lib/client.js 与源码同步
+pnpm run check:client
+```
+
+两个发布路径：
+
+- **tag 归档安装**（README 推荐的安装方式）直接使用提交的 `lib/` 产物，不执行任何脚本；
+- **git 安装**（`dsh plugin add github:you/dsh-workspace-files`）会拉源码并在 `prepare` 中构建；pnpm ≥10 需要先按提示在 profile 的 `pnpm-workspace.yaml` 中为 `allowBuilds` 授权。
 
 ## License
 
