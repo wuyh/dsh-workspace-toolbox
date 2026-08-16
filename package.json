@@ -32,6 +32,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json && node scripts/build-client.mjs",
+    "dev": "node scripts/dev.mjs",
+    "dev:once": "node scripts/dev.mjs --once",
     "check:client": "node scripts/build-client.mjs --check",
     "prepare": "npm run build"
   },
