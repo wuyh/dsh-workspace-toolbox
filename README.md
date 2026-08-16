@@ -20,12 +20,16 @@ DSH Web UI 的工作区文件管理器插件。在会话视图栏的“轨迹”
 
 ### 预览
 
-- **单击**文件在右侧打开预览：
+- **单击**文件在右侧打开预览，多个文件以**浏览器式标签页**并存（点击切换、× 关闭、上限 10 个，超出自动淘汰最旧标签）：
   - 文本文件带**行号槽**并做语法高亮 —— 基于 [highlight.js](https://highlightjs.org/)（内联 core + 22 种语言：JS/TS、Python、Go、Rust、C/C++/C#、Java/Kotlin/Swift、CSS/SCSS/Less、XML/HTML、JSON、YAML、Shell、SQL、INI、Markdown 等）；
   - **Markdown** 默认以**渲染视图**展示（[marked](https://marked.js.org/) GFM 解析 + [DOMPurify](https://github.com/cure53/DOMPurify) 消毒防 XSS），标题栏可一键切换“源码”视图；
   - 图片（png/jpg/gif/webp/svg/bmp 等）直接渲染；二进制文件提示类型与大小；
 - **双击**文件用系统默认应用打开；
 - 预览内容有上限保护（文本前 256KB / 3000 行，图片 ≤3MB），大文件不会拖垮页面。
+
+## 截图
+
+<!-- TODO: 待补充真实截图（放入 docs/ 目录并在下面引用） -->
 
 ## 安装
 

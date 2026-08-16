@@ -1,11 +1,12 @@
 /**
- * “文件”视图组件：面包屑一层一屏浏览 + 全局搜索 + 预览。
+ * “文件”视图组件：面包屑一层一屏浏览 + 全局搜索 + 多标签预览。
  *
  * 交互模型（类手机文件管理器）：
  * - 每屏只显示当前一层；点击目录进入、← 返回上级、面包屑任意跳转；
  * - 筛选框触发 Host 端全工作区搜索，点击结果目录直接进入；
- * - 单击文件在右侧预览（带行号 + 语法高亮 / 图片渲染），双击系统打开；
- * - 状态按会话持久化在插件级 store 中，切换“对话/轨迹/文件”标签后恢复。
+ * - 单击文件在右侧打开**标签页**（浏览器式）：多个文件并存、点击切换、
+ *   × 关闭，已打开的文件再次点击只是激活对应标签；
+ * - 标签与内容按会话持久化在插件级 store 中，切换“对话/轨迹/文件”后恢复。
  */
 import * as React from 'react'
 import type { ReactNode } from 'react'
@@ -14,6 +15,9 @@ import { fileIcon, folderSvg } from './icons.js'
 import { renderMarkdown } from './markdown.js'
 import { listDir, listRoot, readFile, searchFiles } from './rpc.js'
 import type { Entry, WorkspacesService } from './types.js'
+
+/** 同时打开的标签上限（超出淘汰最旧的标签）。 */
+const MAX_TABS = 10
 
 const ERROR_TEXT: Record<string, string> = {
   NO_WORKSPACE: '当前会话没有关联工作区',
@@ -67,7 +71,7 @@ interface SearchState {
   truncated: boolean
 }
 
-interface PreviewState {
+interface PreviewTab {
   path: string
   abs?: string
   name: string
@@ -80,8 +84,12 @@ interface SessionStore {
   currentPath: string
   filter: string
   treeVisible: boolean
-  preview: PreviewState | null
-  doc: DocState
+  /** 打开的文件标签（浏览器式，按打开顺序排列）。 */
+  tabs: PreviewTab[]
+  /** 当前激活标签的相对路径（'' 表示无标签）。 */
+  activePath: string
+  /** 每个路径的已加载内容缓存。 */
+  docs: Record<string, DocState>
   search: SearchState
   /** Markdown 预览的显示模式：渲染 / 源码。 */
   mdView: 'render' | 'source'
@@ -89,6 +97,10 @@ interface SessionStore {
 
 const sessionStores = new Map<string, SessionStore>()
 const loadedSids = new Set<string>()
+
+function emptyDoc(): DocState {
+  return { phase: 'idle', kind: '', text: '', dataUrl: '', size: 0, truncated: false, error: '', forPath: '' }
+}
 
 function sessionStore(sid: string): SessionStore {
   let store = sessionStores.get(sid)
@@ -100,8 +112,9 @@ function sessionStore(sid: string): SessionStore {
       currentPath: '',
       filter: '',
       treeVisible: true,
-      preview: null,
-      doc: { phase: 'idle', kind: '', text: '', dataUrl: '', size: 0, truncated: false, error: '', forPath: '' },
+      tabs: [],
+      activePath: '',
+      docs: {},
       search: { phase: 'idle', query: '', matches: [], truncated: false },
       mdView: 'render',
     }
@@ -128,8 +141,9 @@ export function FilesView(props: FilesViewProps): ReactNode {
   const [filter, setFilter] = React.useState<string>(store.filter)
   const [reloadKey, setReloadKey] = React.useState(0)
   const [treeVisible, setTreeVisible] = React.useState<boolean>(store.treeVisible)
-  const [preview, setPreview] = React.useState<PreviewState | null>(store.preview)
-  const [doc, setDoc] = React.useState<DocState>(store.doc)
+  const [tabs, setTabs] = React.useState<PreviewTab[]>(store.tabs)
+  const [activePath, setActivePath] = React.useState<string>(store.activePath)
+  const [docs, setDocs] = React.useState<Record<string, DocState>>(store.docs)
   const [search, setSearch] = React.useState<SearchState>(store.search)
   const [mdView, setMdView] = React.useState<'render' | 'source'>(store.mdView)
 
@@ -140,8 +154,9 @@ export function FilesView(props: FilesViewProps): ReactNode {
   React.useEffect(() => { store.currentPath = currentPath }, [currentPath, sid])
   React.useEffect(() => { store.filter = filter }, [filter, sid])
   React.useEffect(() => { store.treeVisible = treeVisible }, [treeVisible, sid])
-  React.useEffect(() => { store.preview = preview }, [preview, sid])
-  React.useEffect(() => { store.doc = doc }, [doc, sid])
+  React.useEffect(() => { store.tabs = tabs }, [tabs, sid])
+  React.useEffect(() => { store.activePath = activePath }, [activePath, sid])
+  React.useEffect(() => { store.docs = docs }, [docs, sid])
   React.useEffect(() => { store.search = search }, [search, sid])
   React.useEffect(() => { store.mdView = mdView }, [mdView, sid])
 
@@ -153,7 +168,7 @@ export function FilesView(props: FilesViewProps): ReactNode {
       setDirData({})
       setPending({})
       setCurrentPath('')
-      setPreview(null)
+      setPreviewReset()
       setFilter('')
     }
     let alive = true
@@ -172,30 +187,32 @@ export function FilesView(props: FilesViewProps): ReactNode {
     return () => { alive = false }
   }, [sid, reloadKey])
 
-  // 预览加载：store 中同路径的已就绪内容直接复用。
+  // 激活标签的内容加载：docs 中同路径的已就绪内容直接复用。
   React.useEffect(() => {
-    if (preview === null) {
-      setDoc({ phase: 'idle', kind: '', text: '', dataUrl: '', size: 0, truncated: false, error: '', forPath: '' })
-      return
-    }
-    if (store.doc.forPath === preview.path && store.doc.phase === 'ready') return
+    if (activePath === '') return
+    const cached = docs[activePath]
+    if (cached !== undefined && cached.forPath === activePath && cached.phase === 'ready') return
+    const loading: DocState = { ...emptyDoc(), phase: 'loading', forPath: activePath }
+    setDocs((d) => ({ ...d, [activePath]: loading }))
     let alive = true
-    setDoc({ phase: 'loading', kind: '', text: '', dataUrl: '', size: 0, truncated: false, error: '', forPath: preview.path })
-    readFile(sid, preview.path).then((res) => {
+    readFile(sid, activePath).then((res) => {
       if (!alive) return
       if (res.ok) {
-        setDoc({
-          phase: 'ready', kind: res.kind, text: res.text ?? '', dataUrl: res.dataUrl ?? '',
-          size: res.size, truncated: res.truncated === true, error: '', forPath: preview.path,
-        })
+        setDocs((d) => ({
+          ...d,
+          [activePath]: {
+            phase: 'ready', kind: res.kind, text: res.text ?? '', dataUrl: res.dataUrl ?? '',
+            size: res.size, truncated: res.truncated === true, error: '', forPath: activePath,
+          },
+        }))
       } else {
-        setDoc({ phase: 'error', kind: '', text: '', dataUrl: '', size: 0, truncated: false, error: res.error, forPath: preview.path })
+        setDocs((d) => ({ ...d, [activePath]: { ...emptyDoc(), phase: 'error', error: res.error, forPath: activePath } }))
       }
     }).catch(() => {
-      if (alive) setDoc({ phase: 'error', kind: '', text: '', dataUrl: '', size: 0, truncated: false, error: 'UNKNOWN', forPath: preview.path })
+      if (alive) setDocs((d) => ({ ...d, [activePath]: { ...emptyDoc(), phase: 'error', error: 'UNKNOWN', forPath: activePath } }))
     })
     return () => { alive = false }
-  }, [preview, sid])
+  }, [activePath, sid])
 
   // 全局搜索（输入即搜，Host 端有界遍历）。
   const q = filter.trim().toLowerCase()
@@ -241,11 +258,54 @@ export function FilesView(props: FilesViewProps): ReactNode {
   const openRoot = (): void => {
     if (state.root !== '' && workspaces !== undefined) workspaces.openPath(state.root).catch(() => {})
   }
+
+  /** 打开/激活一个文件标签；超过上限时淘汰最旧的标签。 */
   const openPreview = (node: Entry): void => {
-    setPreview({ path: node.path, abs: node.abs, name: node.name })
+    if (tabs.some((t) => t.path === node.path)) {
+      setActivePath(node.path)
+      return
+    }
+    const tab: PreviewTab = { path: node.path, abs: node.abs, name: node.name }
+    let next = [...tabs, tab]
+    let evicted: PreviewTab | undefined
+    if (next.length > MAX_TABS) evicted = next.shift()
+    setTabs(next)
+    setActivePath(node.path)
+    if (evicted !== undefined) {
+      setDocs((d) => {
+        const nextDocs = { ...d }
+        delete nextDocs[evicted.path]
+        return nextDocs
+      })
+    }
   }
 
-  const isActive = (node: Entry): boolean => preview !== null && preview.path === node.path
+  /** 关闭标签：若关闭的是激活标签，激活相邻标签。 */
+  const closeTab = (path: string): void => {
+    const idx = tabs.findIndex((t) => t.path === path)
+    const nextTabs = tabs.filter((t) => t.path !== path)
+    setTabs(nextTabs)
+    setDocs((d) => {
+      const nextDocs = { ...d }
+      delete nextDocs[path]
+      return nextDocs
+    })
+    if (activePath === path) {
+      const neighbor = nextTabs[Math.min(Math.max(idx, 0), nextTabs.length - 1)]
+      setActivePath(neighbor?.path ?? '')
+    }
+  }
+
+  /** 新会话重置所有标签状态。 */
+  const setPreviewReset = (): void => {
+    setTabs([])
+    setActivePath('')
+    setDocs({})
+  }
+
+  const activeTab = tabs.find((t) => t.path === activePath) ?? null
+  const activeDoc = activePath === '' ? null : (docs[activePath] ?? { ...emptyDoc(), phase: 'loading' as const, forPath: activePath })
+  const isActive = (node: Entry): boolean => activePath === node.path
 
   function renderRow(node: Entry): ReactNode {
     if (node.type === 'dir') {
@@ -293,6 +353,22 @@ export function FilesView(props: FilesViewProps): ReactNode {
       }
     }
     return items
+  }
+
+  function renderTabs(): ReactNode {
+    return tabs.map((tab) => {
+      const active = tab.path === activePath
+      return React.createElement('div', {
+        key: tab.path, className: active ? 'dshfm-tab dshfm-tab-active' : 'dshfm-tab',
+        onClick: () => setActivePath(tab.path), title: tab.path,
+      },
+        React.createElement('span', { className: 'dshfm-tab-name' }, tab.name),
+        React.createElement('button', {
+          type: 'button', className: 'dshfm-tab-close', title: '关闭',
+          onClick: (e: { stopPropagation(): void }) => { e.stopPropagation(); closeTab(tab.path) },
+        }, '\u00D7'),
+      )
+    })
   }
 
   const curEntries = dirData[currentPath]
@@ -361,29 +437,31 @@ export function FilesView(props: FilesViewProps): ReactNode {
   }
 
   function renderPreviewBody(): ReactNode {
-    if (preview === null) return React.createElement('div', { className: 'dshfm-center' }, '点击左侧文件进行预览，双击可在系统中打开')
-    if (doc.phase === 'loading') return React.createElement('div', { className: 'dshfm-center' }, '加载中…')
-    if (doc.phase === 'error') return React.createElement('div', { className: 'dshfm-center' }, '预览失败：' + (ERROR_TEXT[doc.error] ?? doc.error))
-    if (doc.kind === 'text') {
+    if (activeTab === null || activeDoc === null) {
+      return React.createElement('div', { className: 'dshfm-center' }, '点击左侧文件进行预览（多个文件以标签页打开），双击可在系统中打开')
+    }
+    if (activeDoc.phase === 'loading') return React.createElement('div', { className: 'dshfm-center' }, '加载中…')
+    if (activeDoc.phase === 'error') return React.createElement('div', { className: 'dshfm-center' }, '预览失败：' + (ERROR_TEXT[activeDoc.error] ?? activeDoc.error))
+    if (activeDoc.kind === 'text') {
       // Markdown：默认渲染视图（marked + DOMPurify），可切换源码视图。
-      if (isMarkdown(preview.name) && mdView === 'render') {
-        const html = renderMarkdown(doc.text)
+      if (isMarkdown(activeTab.name) && mdView === 'render') {
+        const html = renderMarkdown(activeDoc.text)
         return React.createElement('div', { className: 'dshfm-md', dangerouslySetInnerHTML: { __html: html } })
       }
-      return renderCodeView(doc.text, detectLang(preview.name))
+      return renderCodeView(activeDoc.text, detectLang(activeTab.name))
     }
-    if (doc.kind === 'image') {
-      return React.createElement('div', { style: { padding: 12 } }, React.createElement('img', { className: 'dshfm-img', src: doc.dataUrl, alt: preview.name }))
+    if (activeDoc.kind === 'image') {
+      return React.createElement('div', { style: { padding: 12 } }, React.createElement('img', { className: 'dshfm-img', src: activeDoc.dataUrl, alt: activeTab.name }))
     }
     return React.createElement('div', { className: 'dshfm-center' },
       React.createElement('div', null, '二进制文件，无法直接预览'),
-      React.createElement('div', { style: { marginTop: 6 } }, fmtSize(doc.size)),
-      React.createElement('button', { type: 'button', className: 'dshfm-btn', style: { marginTop: 14 }, onClick: () => openPath(preview.abs) }, '在系统中打开'),
+      React.createElement('div', { style: { marginTop: 6 } }, fmtSize(activeDoc.size)),
+      React.createElement('button', { type: 'button', className: 'dshfm-btn', style: { marginTop: 14 }, onClick: () => openPath(activeTab.abs) }, '在系统中打开'),
     )
   }
 
   let note: ReactNode = null
-  if (preview !== null && doc.phase === 'ready' && doc.kind === 'text' && (doc.truncated || doc.text.split('\n').length > 3000)) {
+  if (activeTab !== null && activeDoc !== null && activeDoc.phase === 'ready' && activeDoc.kind === 'text' && (activeDoc.truncated || activeDoc.text.split('\n').length > 3000)) {
     note = React.createElement('div', { className: 'dshfm-note' }, '内容过长，仅预览前 256 KB')
   }
 
@@ -404,19 +482,20 @@ export function FilesView(props: FilesViewProps): ReactNode {
         React.createElement('div', { className: 'dshfm-tree-body' }, treeBody),
       ) : null,
       React.createElement('div', { className: 'dshfm-preview' },
+        tabs.length > 0 ? React.createElement('div', { className: 'dshfm-tabs' }, renderTabs()) : null,
         React.createElement('div', { className: 'dshfm-preview-head' },
-          React.createElement('span', { className: 'dshfm-preview-name' }, preview === null ? '预览' : preview.name),
-          preview === null ? null : React.createElement('span', { className: 'dshfm-preview-meta', title: preview.path }, preview.path + (doc.size > 0 ? ' · ' + fmtSize(doc.size) : '')),
+          React.createElement('span', { className: 'dshfm-preview-name' }, activeTab === null ? '预览' : activeTab.name),
+          activeTab === null ? null : React.createElement('span', { className: 'dshfm-preview-meta', title: activeTab.path }, activeTab.path + (activeDoc !== null && activeDoc.size > 0 ? ' · ' + fmtSize(activeDoc.size) : '')),
           React.createElement('span', { className: 'dshfm-preview-spacer' }),
-          preview !== null && doc.kind === 'text' && isMarkdown(preview.name)
+          activeTab !== null && activeDoc !== null && activeDoc.kind === 'text' && isMarkdown(activeTab.name)
             ? React.createElement('button', {
                 type: 'button',
                 className: mdView === 'render' ? 'dshfm-btn dshfm-btn-on' : 'dshfm-btn',
                 onClick: () => setMdView((v) => (v === 'render' ? 'source' : 'render')),
               }, mdView === 'render' ? '源码' : '预览')
             : null,
-          preview === null ? null : React.createElement('button', { type: 'button', className: 'dshfm-btn', onClick: () => openPath(preview.abs) }, '在系统中打开'),
-          preview === null ? null : React.createElement('button', { type: 'button', className: 'dshfm-btn', onClick: () => setPreview(null) }, '关闭'),
+          activeTab === null ? null : React.createElement('button', { type: 'button', className: 'dshfm-btn', onClick: () => openPath(activeTab.abs) }, '在系统中打开'),
+          activeTab === null ? null : React.createElement('button', { type: 'button', className: 'dshfm-btn', onClick: () => closeTab(activeTab.path) }, '关闭'),
         ),
         React.createElement('div', { className: 'dshfm-preview-body' }, renderPreviewBody()),
         note,
