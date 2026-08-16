@@ -20,7 +20,10 @@ DSH Web UI 的工作区文件管理器插件。在会话视图栏的“轨迹”
 
 ### 预览
 
-- **单击**文件在右侧打开预览：文本文件带**行号槽**并做语法高亮（支持 JS/TS、Python、Go、Rust、C/C++/Java/C#、CSS、HTML/Vue/Svelte、JSON、YAML、Shell、SQL、Markdown、XML、INI）；图片（png/jpg/gif/webp/svg/bmp 等）直接渲染；二进制文件提示类型与大小；
+- **单击**文件在右侧打开预览：
+  - 文本文件带**行号槽**并做语法高亮 —— 基于 [highlight.js](https://highlightjs.org/)（内联 core + 22 种语言：JS/TS、Python、Go、Rust、C/C++/C#、Java/Kotlin/Swift、CSS/SCSS/Less、XML/HTML、JSON、YAML、Shell、SQL、INI、Markdown 等）；
+  - **Markdown** 默认以**渲染视图**展示（[marked](https://marked.js.org/) GFM 解析 + [DOMPurify](https://github.com/cure53/DOMPurify) 消毒防 XSS），标题栏可一键切换“源码”视图；
+  - 图片（png/jpg/gif/webp/svg/bmp 等）直接渲染；二进制文件提示类型与大小；
 - **双击**文件用系统默认应用打开；
 - 预览内容有上限保护（文本前 256KB / 3000 行，图片 ≤3MB），大文件不会拖垮页面。
 
@@ -56,12 +59,14 @@ src/
     index.ts          浏览器入口：注册“文件”视图页签
     files-view.ts     视图组件：面包屑导航、搜索、预览、状态持久化
     rpc.ts            Host 路由的同源 fetch 封装
-    highlight.ts      轻量语法高亮（14 种语言，VS Code Dark+ 配色）
+    highlight.ts      highlight.js 封装（core + 22 种语言注册、扩展名映射）
+    markdown.ts       Markdown 渲染（marked + DOMPurify 消毒）
     icons.ts          按扩展名的彩色类型图标
-    styles.ts         插件样式与幂等注入
+    styles.ts         插件样式 + hljs 主题 + Markdown 样式，幂等注入
     types.ts          Client 侧线格式与服务面类型
 scripts/
-  build-client.mjs    tsc API 进程内打包 client 为 ModuleLoader bundle
+  build-client.mjs    tsc API 进程内打包 client（内联 highlight.js/marked/dompurify，react 透传共享实例）
+  dev.mjs             开发监视器：改 src/ 自动重建（配合 link 安装 + client-hmr 热更新）
 cordis.patch.yml      组合包 patch：把 Host 行挂进 profile
 lib/                  构建产物（tsc 输出 + client bundle，随 tag 提交）
 ```

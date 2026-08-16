@@ -6,9 +6,15 @@
 // IPC pipe, which the DSH file sandbox blocks (EPERM). This bundler instead
 // uses the TypeScript compiler API (pure JS, no subprocess) to transpile the
 // self-contained client module graph to CommonJS and inline it into a single
-// factory. DSH services are reached through the injected `ctx`; the small
-// number of runtime host dependencies (currently React for additive slot
-// components) are passed through to the outer ModuleLoader resolver.
+// factory.
+//
+// Dependency policy:
+// - relative imports (src/client/*.ts, src/contract.ts) are always inlined;
+// - third-party libraries in the INLINE_PACKAGES allowlist (highlight.js,
+//   marked, dompurify) are resolved through node_modules and inlined too —
+//   so the bundle never depends on runtime bare-module resolution;
+// - everything else (currently `react`) passes through to the outer
+//   ModuleLoader resolver, keeping a single shared React instance.
 //
 // Based on the equivalent build script of dsh-input-plus (MIT License).
 //
@@ -16,12 +22,12 @@
 //   node scripts/build-client.mjs          # write lib/client.js
 //   node scripts/build-client.mjs --check  # verify lib/client.js is fresh
 //
-// New client modules under src/client (and imports from ../contract.js) are
-// picked up automatically by the graph walk.
+// New client modules under src/client are picked up automatically by the
+// graph walk.
 
 import { createRequire } from 'node:module'
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const require = createRequire(import.meta.url)
@@ -32,25 +38,77 @@ const ENTRY = resolve(ROOT, 'src', 'client', 'index.ts')
 const OUTPUT = resolve(ROOT, 'lib', 'client.js')
 const PLUGIN_ID = 'dsh-workspace-files'
 
-const REL_IMPORT = /(?:import|export)\s+(?:[^'"]*?\s+from\s+)?['"](\.[^'"]+\.js)['"]/g
+/** 允许内联进 bundle 的第三方包（其余 specifier 透传给外层 ModuleLoader）。 */
+const INLINE_PACKAGES = new Set(['highlight.js', 'marked', 'dompurify'])
 
-/** Map a relative `./x.js` specifier to an on-disk .ts file, or null. */
-function resolveSpecifier(fromFile, spec) {
-  const base = spec.endsWith('.js') ? spec.slice(0, -3) : spec
-  const dir = dirname(fromFile)
-  for (const ext of ['.ts', '.tsx']) {
-    const cand = resolve(dir, base + ext)
+/** 'highlight.js/lib/core' → 'highlight.js'；'@scope/pkg/sub' → '@scope/pkg'。 */
+function packageOf(spec) {
+  if (spec.startsWith('@')) {
+    const parts = spec.split('/')
+    return parts.length >= 2 ? parts[0] + '/' + parts[1] : spec
+  }
+  return spec.split('/')[0] ?? spec
+}
+
+const TS_IMPORT_RE = /(?:import|export)\s+(?:[^'"]*?\s+from\s+)?['"]([^'"]+)['"]/g
+const CJS_REQUIRE_RE = /require\((['"])([^'"]+)\1\)/g
+
+function tryFile(cand) {
+  for (const p of [cand, cand + '.js', cand + '.cjs', cand + '.mjs', cand + '.json']) {
     try {
-      readFileSync(cand)
-      return cand
+      if (statSync(p).isFile()) return p
     } catch {
-      // try next extension
+      // try next
     }
+  }
+  try {
+    if (statSync(cand).isDirectory()) {
+      try {
+        const pkg = JSON.parse(readFileSync(join(cand, 'package.json'), 'utf8'))
+        if (typeof pkg.main === 'string') {
+          const main = tryFile(resolve(cand, pkg.main))
+          if (main !== null) return main
+        }
+      } catch {
+        // fall through to index
+      }
+      return tryFile(join(cand, 'index'))
+    }
+  } catch {
+    // not a directory
   }
   return null
 }
 
-/** Transpile one module to a CommonJS module body string. */
+/** Node 风格解析：相对路径按 .ts/.tsx 查盘，裸 specifier 走 node_modules。 */
+function resolveSpecifier(fromFile, spec) {
+  if (spec.startsWith('.')) {
+    const base = spec.replace(/\.(js|mjs|cjs)$/, '')
+    const dir = dirname(fromFile)
+    for (const ext of ['.ts', '.tsx']) {
+      const cand = resolve(dir, base + ext)
+      try {
+        statSync(cand)
+        return cand
+      } catch {
+        // try next
+      }
+    }
+    return null
+  }
+  if (!INLINE_PACKAGES.has(packageOf(spec))) return null
+  let dir = dirname(fromFile)
+  for (let hops = 0; hops < 16; hops += 1) {
+    const hit = tryFile(join(dir, 'node_modules', spec))
+    if (hit !== null) return hit
+    const parent = dirname(dir)
+    if (parent === dir) break
+    dir = parent
+  }
+  return null
+}
+
+/** Transpile one module (TS or JS) to a CommonJS module body string. */
 function transpile(fileAbs) {
   const src = readFileSync(fileAbs, 'utf8')
   const out = ts.transpileModule(src, {
@@ -65,13 +123,21 @@ function transpile(fileAbs) {
   return out.outputText
 }
 
-/** Collect the client module graph. Returns order (module ids) and dep lists. */
+/** 收集模块图（含内联的第三方包）。返回节点顺序、边表（specifier → 目标节点）。 */
 function collectGraph() {
   const order = [] // fileAbs; id = position in order
   const index = new Map()
-  const deps = []
+  const edges = new Map() // file → Map(spec → targetFile)
   const queue = [ENTRY]
   index.set(ENTRY, -1)
+
+  const scan = (src, sink) => {
+    TS_IMPORT_RE.lastIndex = 0
+    let m
+    while ((m = TS_IMPORT_RE.exec(src)) !== null) sink(m[1])
+    CJS_REQUIRE_RE.lastIndex = 0
+    while ((m = CJS_REQUIRE_RE.exec(src)) !== null) sink(m[2])
+  }
 
   while (queue.length > 0) {
     const file = queue.shift()
@@ -80,29 +146,31 @@ function collectGraph() {
     index.set(file, id)
     order.push(file)
     const src = readFileSync(file, 'utf8')
-    const re = new RegExp(REL_IMPORT.source, 'g')
-    let m
-    while ((m = re.exec(src)) !== null) {
-      const target = resolveSpecifier(file, m[1])
-      if (target === null) continue
+    const fileEdges = new Map()
+    edges.set(file, fileEdges)
+    scan(src, (spec) => {
+      if (fileEdges.has(spec)) return
+      const target = resolveSpecifier(file, spec)
+      if (target === null) return
+      fileEdges.set(spec, target)
       if (!index.has(target)) {
         index.set(target, -1)
         queue.push(target)
       }
-    }
+    })
   }
-  for (let id = 0; id < order.length; id += 1) {
-    const file = order[id]
-    deps[id] = new Set()
-    const src = readFileSync(file, 'utf8')
-    const re = new RegExp(REL_IMPORT.source, 'g')
-    let m
-    while ((m = re.exec(src)) !== null) {
-      const target = resolveSpecifier(file, m[1])
-      if (target !== null && index.has(target) && index.get(target) !== id) deps[id].add(index.get(target))
+
+  const deps = []
+  for (const file of order) {
+    const fileEdges = edges.get(file) ?? new Map()
+    const set = new Set()
+    for (const target of fileEdges.values()) {
+      const tid = index.get(target)
+      if (tid !== undefined && tid !== index.get(file)) set.add(tid)
     }
+    deps.push(set)
   }
-  return { order, deps }
+  return { order, deps, edges }
 }
 
 /** Post-order visitation producing a stable module list (deps before dependents). */
@@ -125,16 +193,17 @@ function postOrder(order, deps) {
  */
 export function generate({ check = false } = {}) {
   try {
-    const { order, deps } = collectGraph()
+    const { order, deps, edges } = collectGraph()
     const list = postOrder(order, deps) // module ids in post order
     const posOf = new Map(list.map((id, pos) => [id, pos]))
 
     const factories = list.map((id) => {
       const file = order[id]
       const transpiled = transpile(file)
-      const body = transpiled.replace(/require\((['"])(\.[^'"]+\.js)\1\)/g, (all, quote, spec) => {
-        const target = resolveSpecifier(file, spec)
-        const tid = target === null ? undefined : indexOf(order, target)
+      const fileEdges = edges.get(file) ?? new Map()
+      const body = transpiled.replace(CJS_REQUIRE_RE, (all, quote, spec) => {
+        const target = fileEdges.has(spec) ? fileEdges.get(spec) : resolveSpecifier(file, spec)
+        const tid = target === null ? undefined : order.indexOf(target)
         const pos = tid === undefined ? undefined : posOf.get(tid)
         return pos === undefined ? all : `require(${pos})`
       })
@@ -182,11 +251,6 @@ export function generate({ check = false } = {}) {
   } catch (e) {
     return { ok: false, errors: ['bundle failed: ' + (e instanceof Error ? e.stack ?? e.message : String(e))] }
   }
-}
-
-function indexOf(order, file) {
-  for (let i = 0; i < order.length; i += 1) if (order[i] === file) return i
-  return undefined
 }
 
 function indent(text, spaces) {

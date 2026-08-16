@@ -9,8 +9,9 @@
  */
 import * as React from 'react'
 import type { ReactNode } from 'react'
-import { detectLang, hlFor, tokenizeLine } from './highlight.js'
+import { detectLang, highlightCode, isMarkdown } from './highlight.js'
 import { fileIcon, folderSvg } from './icons.js'
+import { renderMarkdown } from './markdown.js'
 import { listDir, listRoot, readFile, searchFiles } from './rpc.js'
 import type { Entry, WorkspacesService } from './types.js'
 
@@ -82,6 +83,8 @@ interface SessionStore {
   preview: PreviewState | null
   doc: DocState
   search: SearchState
+  /** Markdown 预览的显示模式：渲染 / 源码。 */
+  mdView: 'render' | 'source'
 }
 
 const sessionStores = new Map<string, SessionStore>()
@@ -100,6 +103,7 @@ function sessionStore(sid: string): SessionStore {
       preview: null,
       doc: { phase: 'idle', kind: '', text: '', dataUrl: '', size: 0, truncated: false, error: '', forPath: '' },
       search: { phase: 'idle', query: '', matches: [], truncated: false },
+      mdView: 'render',
     }
     sessionStores.set(sid, store)
   }
@@ -127,6 +131,7 @@ export function FilesView(props: FilesViewProps): ReactNode {
   const [preview, setPreview] = React.useState<PreviewState | null>(store.preview)
   const [doc, setDoc] = React.useState<DocState>(store.doc)
   const [search, setSearch] = React.useState<SearchState>(store.search)
+  const [mdView, setMdView] = React.useState<'render' | 'source'>(store.mdView)
 
   // 状态镜像回 store（组件因标签切换卸载时，store 存活并恢复）。
   React.useEffect(() => { store.state = state }, [state, sid])
@@ -138,6 +143,7 @@ export function FilesView(props: FilesViewProps): ReactNode {
   React.useEffect(() => { store.preview = preview }, [preview, sid])
   React.useEffect(() => { store.doc = doc }, [doc, sid])
   React.useEffect(() => { store.search = search }, [search, sid])
+  React.useEffect(() => { store.mdView = mdView }, [mdView, sid])
 
   // 根目录列表：新会话全量重置；重进标签时静默刷新。
   React.useEffect(() => {
@@ -338,29 +344,33 @@ export function FilesView(props: FilesViewProps): ReactNode {
     treeBody = curEntries.map((entry) => renderRow(entry))
   }
 
+  function renderCodeView(text: string, lang: string): ReactNode {
+    const lines = text.split('\n')
+    const capped = lines.length > 3000
+    const shownText = capped ? lines.slice(0, 3000).join('\n') : text
+    const html = highlightCode(shownText, lang)
+    const count = capped ? 3000 : lines.length
+    const gutter: ReactNode[] = []
+    for (let i = 0; i < count; i += 1) gutter.push(React.createElement('div', { className: 'dshfm-ln', key: i }, String(i + 1)))
+    return React.createElement('div', { className: 'dshfm-code' },
+      React.createElement('div', { className: 'dshfm-gutter' }, gutter),
+      React.createElement('div', { className: 'dshfm-code-text' },
+        React.createElement('pre', { className: 'dshfm-code-pre', dangerouslySetInnerHTML: { __html: html } }),
+      ),
+    )
+  }
+
   function renderPreviewBody(): ReactNode {
     if (preview === null) return React.createElement('div', { className: 'dshfm-center' }, '点击左侧文件进行预览，双击可在系统中打开')
     if (doc.phase === 'loading') return React.createElement('div', { className: 'dshfm-center' }, '加载中…')
     if (doc.phase === 'error') return React.createElement('div', { className: 'dshfm-center' }, '预览失败：' + (ERROR_TEXT[doc.error] ?? doc.error))
     if (doc.kind === 'text') {
-      const hl = hlFor(detectLang(preview.name))
-      const lines = doc.text.split('\n')
-      const capped = lines.length > 3000
-      const shown = capped ? lines.slice(0, 3000) : lines
-      const gutter: ReactNode[] = []
-      for (let i = 0; i < shown.length; i += 1) gutter.push(React.createElement('div', { className: 'dshfm-ln', key: i }, String(i + 1)))
-      const codeLines = shown.map((line, i) => {
-        let content: ReactNode = line
-        if (hl !== null && line.length <= 2000) {
-          const tokens = tokenizeLine(line, hl)
-          content = tokens.map((t, j) => t.color === '' ? t.text : React.createElement('span', { key: j, style: { color: t.color } }, t.text))
-        }
-        return React.createElement('div', { className: 'dshfm-line', key: i }, content)
-      })
-      return React.createElement('div', { className: 'dshfm-code' },
-        React.createElement('div', { className: 'dshfm-gutter' }, gutter),
-        React.createElement('div', { className: 'dshfm-code-text' }, codeLines),
-      )
+      // Markdown：默认渲染视图（marked + DOMPurify），可切换源码视图。
+      if (isMarkdown(preview.name) && mdView === 'render') {
+        const html = renderMarkdown(doc.text)
+        return React.createElement('div', { className: 'dshfm-md', dangerouslySetInnerHTML: { __html: html } })
+      }
+      return renderCodeView(doc.text, detectLang(preview.name))
     }
     if (doc.kind === 'image') {
       return React.createElement('div', { style: { padding: 12 } }, React.createElement('img', { className: 'dshfm-img', src: doc.dataUrl, alt: preview.name }))
@@ -398,6 +408,13 @@ export function FilesView(props: FilesViewProps): ReactNode {
           React.createElement('span', { className: 'dshfm-preview-name' }, preview === null ? '预览' : preview.name),
           preview === null ? null : React.createElement('span', { className: 'dshfm-preview-meta', title: preview.path }, preview.path + (doc.size > 0 ? ' · ' + fmtSize(doc.size) : '')),
           React.createElement('span', { className: 'dshfm-preview-spacer' }),
+          preview !== null && doc.kind === 'text' && isMarkdown(preview.name)
+            ? React.createElement('button', {
+                type: 'button',
+                className: mdView === 'render' ? 'dshfm-btn dshfm-btn-on' : 'dshfm-btn',
+                onClick: () => setMdView((v) => (v === 'render' ? 'source' : 'render')),
+              }, mdView === 'render' ? '源码' : '预览')
+            : null,
           preview === null ? null : React.createElement('button', { type: 'button', className: 'dshfm-btn', onClick: () => openPath(preview.abs) }, '在系统中打开'),
           preview === null ? null : React.createElement('button', { type: 'button', className: 'dshfm-btn', onClick: () => setPreview(null) }, '关闭'),
         ),
