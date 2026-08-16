@@ -8,7 +8,7 @@
  *   3. 沙箱策略的 workspaceRoot 兜底。
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { FsTarget } from './services.js'
+import type { FsTarget, SessionsService, SandboxPolicyService } from './services.js'
 
 export interface ResolvedRoot {
   rootPath: string
@@ -26,11 +26,13 @@ export async function resolveRoot(ctx: Context, sessionId: string): Promise<Reso
     rootPath = agent.session.header.cwd
   }
   if (rootPath === '') {
-    const session = ctx.sessions?.get(sessionId)
+    // sessions / sandboxPolicy 是可选服务：通过 ctx.get 读取并容忍缺失。
+    const sessions = ctx.get('sessions') as unknown as SessionsService | undefined
+    const session = sessions?.get(sessionId)
     if (session && typeof session.header.cwd === 'string') rootPath = session.header.cwd
   }
   if (rootPath === '') {
-    const policy = ctx.sandboxPolicy
+    const policy = ctx.get('sandboxPolicy') as unknown as SandboxPolicyService | undefined
     if (policy !== undefined && typeof policy.workspaceRoot === 'string') rootPath = policy.workspaceRoot
   }
   if (rootPath === '') return { error: 'NO_WORKSPACE' }

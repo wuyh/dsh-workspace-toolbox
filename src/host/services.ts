@@ -80,7 +80,5 @@ declare module '@deepseek-ai/cordis' {
     fs: FsService
     agents: AgentsService
     webServer: WebServerService
-    sessions?: SessionsService
-    sandboxPolicy?: SandboxPolicyService
   }
 }
