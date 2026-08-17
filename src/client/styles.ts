@@ -43,7 +43,6 @@ export const CSS = `
   .dshfm-ln { line-height: 18px; padding: 0 10px 0 14px; }
   .dshfm-code-text { padding: 10px 16px; }
   .dshfm-code-pre { margin: 0; font: inherit; line-height: 18px; white-space: pre; }
-  .dshfm-line { line-height: 18px; white-space: pre; }
 
   /* highlight.js token 主题（VS Code Dark+ 近似配色） */
   .dshfm-code-pre .hljs-comment, .dshfm-code-pre .hljs-quote { color: #6a9955; font-style: italic; }
@@ -89,6 +88,54 @@ export const CSS = `
   .dshfm-chev { flex: none; width: 12px; height: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; color: var(--dsw-alias-label-tertiary); }
   .dshfm-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--dsw-alias-label-primary); }
   .dshfm-size { flex: none; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+  .dshfm-docker-wrap { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .dshfm-docker-wrap .dshdc-main { height: 100%; }
+
+  /* Docker 服务视图 */
+  .dshdc-root { height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .dshdc-main { flex: 1; min-height: 0; min-width: 0; display: flex; overflow: hidden; }
+  .dshdc-side { flex: none; width: 280px; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; overscroll-behavior: contain; border-right: 1px solid var(--dsw-alias-border-l2); }
+  .dshdc-side-head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px 4px; font-size: 12px; font-weight: 500; color: var(--dsw-alias-label-secondary); }
+  .dshdc-side-list { flex: none; overflow: visible; padding: 2px 6px 8px; }
+  .dshdc-form { flex: none; display: flex; flex-direction: column; gap: 6px; padding: 4px 10px 10px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+  .dshdc-error { font-size: 11px; color: var(--dsw-alias-state-error-primary); line-height: 1.5; }
+  .dshdc-row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+  .dshdc-row:hover { background: var(--dsw-alias-interactive-bg-hover); }
+  .dshdc-row-active { background: var(--dsw-alias-interactive-bg-hover); }
+  .dshdc-row-main { flex: 1; min-width: 0; }
+  .dshdc-row-name { font-size: 13px; color: var(--dsw-alias-label-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dshdc-row-sub { font-size: 11px; color: var(--dsw-alias-label-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dshdc-row-actions { flex: none; display: flex; gap: 4px; }
+  .dshdc-dot { flex: none; font-size: 9px; color: var(--dsw-alias-label-tertiary); }
+  .dshdc-dot-on { color: var(--dsw-alias-state-business-primary); }
+  .dshdc-body { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .dshdc-bar { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+  .dshdc-title { font-size: 14px; font-weight: 600; color: var(--dsw-alias-label-primary); }
+  .dshdc-spacer { flex: 1; }
+  .dshdc-actions { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+  .dshdc-actions-label { font-size: 12px; color: var(--dsw-alias-label-secondary); }
+  .dshdc-sep { width: 1px; height: 18px; background: var(--dsw-alias-border-l2); margin: 0 4px; }
+  .dshdc-input { padding: 4px 8px; font-size: 12px; color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-base); border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; outline: none; box-sizing: border-box; }
+  .dshdc-input:focus { border-color: var(--dsw-alias-interactive-bg-hover); }
+  .dshdc-btn { flex: none; display: inline-flex; align-items: center; padding: 4px 10px; font-size: 12px; line-height: 16px; color: var(--dsw-alias-label-secondary); background: transparent; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; cursor: pointer; }
+  .dshdc-btn:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+  .dshdc-btn:disabled { opacity: 0.45; cursor: default; }
+  .dshdc-btn-on { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-interactive-bg-hover); }
+  .dshdc-mini { flex: none; border: none; background: transparent; color: var(--dsw-alias-label-secondary); font-size: 11px; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+  .dshdc-mini:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+  .dshdc-content { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 6px 0 96px; }
+  .dshdc-center { padding: 40px 16px; text-align: center; color: var(--dsw-alias-label-tertiary); font-size: 12px; }
+  .dshdc-list-row { display: flex; align-items: center; gap: 10px; padding: 5px 14px; font-size: 12px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+  .dshdc-list-name { flex: none; min-width: 140px; max-width: 320px; color: var(--dsw-alias-label-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--ds-font-family-code); }
+  .dshdc-list-meta { flex: none; color: var(--dsw-alias-label-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+  .dshdc-list-id { flex: none; color: var(--dsw-alias-label-tertiary); font-family: var(--ds-font-family-code); }
+  .dshdc-list-state { flex: none; color: var(--dsw-alias-label-secondary); min-width: 56px; }
+  .dshdc-list-state[data-state="running"] { color: var(--dsw-alias-state-business-primary); }
+  .dshdc-job { margin: 8px 14px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; overflow: hidden; }
+  .dshdc-job-head { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--dsw-alias-border-l2); font-size: 12px; }
+  .dshdc-job-label { flex: 1; min-width: 0; color: var(--dsw-alias-label-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dshdc-job-status { flex: none; color: var(--dsw-alias-label-secondary); }
+  .dshdc-log { margin: 0; padding: 8px 10px; font-family: var(--ds-font-family-code); font-size: 11px; line-height: 16px; color: var(--dsw-alias-label-secondary); white-space: pre-wrap; word-break: break-all; max-height: 240px; overflow: auto; background: var(--dsw-alias-bg-base); }
 `
 
 const TAG_ID = '@deepseek-ai/dsh-workspace-files/client.css'

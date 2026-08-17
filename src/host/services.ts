@@ -50,6 +50,9 @@ export interface AgentsService {
 
 export interface WebRequest {
   url?: string
+  method?: string
+  /** Node IncomingMessage 的异步迭代（读取请求体）。 */
+  [Symbol.asyncIterator](): AsyncIterableIterator<Uint8Array>
 }
 
 export interface WebResponse {

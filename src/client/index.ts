@@ -2,7 +2,7 @@
  * dsh-workspace-files 浏览器端入口。
  *
  * 挂在官方的 additive 扩展面上：在会话视图环（conversation.view）注册
- * 一个“文件”页签（紧跟“轨迹”之后），组件本体见 files-view.ts。
+ * 一个“文件”页签（紧跟“轨迹”之后），内含文件浏览与 Docker 服务两个模式。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import * as React from 'react'

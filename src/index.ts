@@ -2,12 +2,15 @@
  * dsh-workspace-files Host 入口 —— 一个静态 Cordis 插件。
  *
  * 职责（Host 拥有）：
- * - 把当前会话工作区的单层列表 / 全工作区搜索 / 只读预览暴露为
+ * - 文件面：把当前会话工作区的单层列表 / 全工作区搜索 / 只读预览暴露为
  *   同源 HTTP 路由（浏览器端通过 contract.ts 中的路由调用）；
+ * - Docker 面：本地/SSH 隧道连接远程 Docker（复用 ssh 密码/密钥，不改
+ *   服务器 docker 配置），提供镜像/容器管理、拉取/构建/运行长任务；
  * - 所有副作用 Fiber 归属（ctx.effect 包裹路由注册），卸载时自动移除。
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { ROUTE_DIR, ROUTE_LIST, ROUTE_READ, ROUTE_SEARCH } from './contract.js'
+import { registerDockerRoutes } from './host/docker/routes.js'
 import { listLevel, readPreview, searchWorkspace } from './host/files.js'
 import { resolveRoot } from './host/workspace.js'
 import type { WebRequest, WebResponse } from './host/services.js'
@@ -30,6 +33,9 @@ function errorMessage(error: unknown): string {
 }
 
 export function apply(ctx: Context): void {
+  // Docker 服务路由（连接管理 / 镜像容器 / 长任务）
+  registerDockerRoutes(ctx)
+
   // GET /dsh-workspace-files/list?session=<id> → 根目录一层
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',

@@ -10,6 +10,7 @@
  */
 import * as React from 'react'
 import type { ReactNode } from 'react'
+import { DockerPanel } from './docker-view.js'
 import { detectLang, highlightCode, isMarkdown } from './highlight.js'
 import { fileIcon, folderSvg } from './icons.js'
 import { renderMarkdown } from './markdown.js'
@@ -93,6 +94,8 @@ interface SessionStore {
   search: SearchState
   /** Markdown 预览的显示模式：渲染 / 源码。 */
   mdView: 'render' | 'source'
+  /** 主区域模式：文件浏览 / Docker 服务。 */
+  viewMode: 'files' | 'docker'
 }
 
 const sessionStores = new Map<string, SessionStore>()
@@ -117,6 +120,7 @@ function sessionStore(sid: string): SessionStore {
       docs: {},
       search: { phase: 'idle', query: '', matches: [], truncated: false },
       mdView: 'render',
+      viewMode: 'files',
     }
     sessionStores.set(sid, store)
   }
@@ -146,6 +150,7 @@ export function FilesView(props: FilesViewProps): ReactNode {
   const [docs, setDocs] = React.useState<Record<string, DocState>>(store.docs)
   const [search, setSearch] = React.useState<SearchState>(store.search)
   const [mdView, setMdView] = React.useState<'render' | 'source'>(store.mdView)
+  const [viewMode, setViewMode] = React.useState<'files' | 'docker'>(store.viewMode)
 
   // 状态镜像回 store（组件因标签切换卸载时，store 存活并恢复）。
   React.useEffect(() => { store.state = state }, [state, sid])
@@ -159,6 +164,7 @@ export function FilesView(props: FilesViewProps): ReactNode {
   React.useEffect(() => { store.docs = docs }, [docs, sid])
   React.useEffect(() => { store.search = search }, [search, sid])
   React.useEffect(() => { store.mdView = mdView }, [mdView, sid])
+  React.useEffect(() => { store.viewMode = viewMode }, [viewMode, sid])
 
   // 根目录列表：新会话全量重置；重进标签时静默刷新。
   React.useEffect(() => {
@@ -467,21 +473,28 @@ export function FilesView(props: FilesViewProps): ReactNode {
 
   return React.createElement('div', { className: 'dshfm-root', 'data-conversation-composer-overlay': '' },
     React.createElement('div', { className: 'dshfm-bar' },
-      React.createElement('button', { type: 'button', className: treeVisible ? 'dshfm-btn dshfm-btn-on' : 'dshfm-btn', title: '显示/隐藏目录', onClick: () => setTreeVisible((v) => !v) }, '☰'),
-      React.createElement('span', { className: 'dshfm-path', title: state.root }, state.root || '—'),
-      React.createElement('input', { className: 'dshfm-input', value: filter, placeholder: '筛选…', onChange: (e) => setFilter(e.target.value) }),
-      React.createElement('button', { type: 'button', className: 'dshfm-btn', onClick: () => setReloadKey((k) => k + 1) }, '刷新'),
-      React.createElement('button', { type: 'button', className: 'dshfm-btn', onClick: openRoot, disabled: state.root === '' }, '打开目录'),
+      React.createElement('button', { type: 'button', className: viewMode === 'files' ? 'dshfm-btn dshfm-btn-on' : 'dshfm-btn', onClick: () => setViewMode('files') }, '文件'),
+      React.createElement('button', { type: 'button', className: viewMode === 'docker' ? 'dshfm-btn dshfm-btn-on' : 'dshfm-btn', onClick: () => setViewMode('docker') }, 'Docker'),
+      viewMode === 'files' ? React.createElement(React.Fragment, null,
+        React.createElement('button', { type: 'button', className: treeVisible ? 'dshfm-btn dshfm-btn-on' : 'dshfm-btn', title: '显示/隐藏目录', onClick: () => setTreeVisible((v) => !v) }, '☰'),
+        React.createElement('span', { className: 'dshfm-path', title: state.root }, state.root || '—'),
+        React.createElement('input', { className: 'dshfm-input', value: filter, placeholder: '筛选…', onChange: (e) => setFilter(e.target.value) }),
+        React.createElement('button', { type: 'button', className: 'dshfm-btn', onClick: () => setReloadKey((k) => k + 1) }, '刷新'),
+        React.createElement('button', { type: 'button', className: 'dshfm-btn', onClick: openRoot, disabled: state.root === '' }, '打开目录'),
+      ) : null,
     ),
     React.createElement('div', { className: 'dshfm-main' },
-      treeVisible ? React.createElement('div', { className: 'dshfm-tree' },
+      viewMode === 'docker' ? React.createElement('div', { className: 'dshfm-docker-wrap' },
+        React.createElement(DockerPanel, { sessionId: sid }),
+      ) : null,
+      viewMode === 'files' && treeVisible ? React.createElement('div', { className: 'dshfm-tree' },
         React.createElement('div', { className: 'dshfm-tree-head' },
           React.createElement('button', { type: 'button', className: 'dshfm-btn dshfm-back', title: '返回上一级', disabled: currentPath === '', onClick: goUp }, '\u2190'),
           React.createElement('div', { className: 'dshfm-crumbs' }, renderCrumbs()),
         ),
         React.createElement('div', { className: 'dshfm-tree-body' }, treeBody),
       ) : null,
-      React.createElement('div', { className: 'dshfm-preview' },
+      viewMode === 'files' ? React.createElement('div', { className: 'dshfm-preview' },
         tabs.length > 0 ? React.createElement('div', { className: 'dshfm-tabs' }, renderTabs()) : null,
         React.createElement('div', { className: 'dshfm-preview-head' },
           React.createElement('span', { className: 'dshfm-preview-name' }, activeTab === null ? '预览' : activeTab.name),
@@ -499,7 +512,7 @@ export function FilesView(props: FilesViewProps): ReactNode {
         ),
         React.createElement('div', { className: 'dshfm-preview-body' }, renderPreviewBody()),
         note,
-      ),
+      ) : null,
     ),
   )
 }
