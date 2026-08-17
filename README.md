@@ -60,7 +60,7 @@
 要求 DSH `0.1.0-rc.6` 或兼容的 DSH Web profile。通过官方 profile 插件流安装：
 
 ```bash
-dsh plugin --profile web add https://github.com/<owner>/dsh-workspace-toolbox/archive/refs/tags/v0.3.0.tar.gz
+dsh plugin --profile web add https://github.com/wuyh/dsh-workspace-toolbox/archive/refs/tags/v0.3.0.tar.gz
 ```
 
 本地开发（link 模式，改源码即可迭代）：
@@ -152,7 +152,7 @@ pnpm run check:client
 发布路径：
 
 - **tag 归档安装**：直接使用提交的 `lib/` 产物，不执行构建脚本；
-- **git 安装**（`dsh plugin add github:<owner>/dsh-workspace-toolbox`）：拉源码并在 `prepare` 中构建；pnpm ≥10 需在 profile 的 `pnpm-workspace.yaml` 中为 `allowBuilds` 授权。
+- **git 安装**（`dsh plugin add github:wuyh/dsh-workspace-toolbox`）：拉源码并在 `prepare` 中构建；pnpm ≥10 需在 profile 的 `pnpm-workspace.yaml` 中为 `allowBuilds` 授权。
 
 ---
 
