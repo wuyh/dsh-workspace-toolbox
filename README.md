@@ -94,22 +94,6 @@ dsh plugin --profile web add link:./dsh-workspace-toolbox
 
 改 `src/` 后 `pnpm run build` 即可；Host 侧改动需重启 profile，Client 侧自动热更新。
 
-### 网络提示（可选）
-
-若无法直接访问 GitHub，请先为终端配置代理，例如：
-
-```bash
-export https_proxy=http://127.0.0.1:7897
-export http_proxy=http://127.0.0.1:7897
-```
-
-或手动下载 tar 包后在本地安装：
-
-```bash
-# 下载 https://github.com/wuyh/dsh-workspace-toolbox/archive/refs/tags/v0.3.0.tar.gz
-dsh plugin --profile web add ./dsh-workspace-toolbox-v0.3.0.tar.gz
-```
-
 ---
 
 ## 安全模型
