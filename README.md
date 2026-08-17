@@ -57,23 +57,58 @@
 
 ## 安装
 
-要求 DSH `0.1.0-rc.6` 或兼容的 DSH Web profile。通过官方 profile 插件流安装：
+要求 DSH `0.1.0-rc.6` 或兼容的 DSH Web profile，以及已安装 [pnpm](https://pnpm.io/)。安装后**重启 Web profile** 生效（`dsh web`），在会话顶部的视图标签中点击「工具箱」。
+
+> 纯 Client 侧改动（`src/client/*`）重建 bundle 后由 client-hmr 自动热更新，无需重启。
+
+### 方式一：tag 归档安装（推荐，开箱即用）
+
+直接使用随 tag 提交的 `lib/` 构建产物，无需本地构建：
 
 ```bash
 dsh plugin --profile web add https://github.com/wuyh/dsh-workspace-toolbox/archive/refs/tags/v0.3.0.tar.gz
 ```
 
-本地开发（link 模式，改源码即可迭代）：
+### 方式二：git 源码安装（自动构建）
+
+拉取源码并在 `prepare` 阶段自动构建（需要网络与 Node.js 18+）：
 
 ```bash
-cd D:\git\dsh-workspace-files
-pnpm install
-dsh plugin --profile web add link:./dsh-workspace-files   # 在仓库上级目录执行
+dsh plugin --profile web add github:wuyh/dsh-workspace-toolbox
 ```
 
-安装/修改后**重启 Web profile** 生效（`dsh web`），在会话顶部的视图标签中点击「工具箱」。
+pnpm ≥10 默认拦截依赖构建脚本；首次安装若提示，需在 profile 的 `pnpm-workspace.yaml` 中为 `allowBuilds` 授权（添加 `ssh2: true`）。
 
-> 纯 Client 侧改动（`src/client/*`）重建 bundle 后由 client-hmr 自动热更新，无需重启。
+### 方式三：本地 link 安装（改源码即可迭代）
+
+```bash
+# 克隆或进入仓库目录
+git clone https://github.com/wuyh/dsh-workspace-toolbox.git
+cd dsh-workspace-toolbox
+pnpm install          # 安装依赖并构建 lib/
+
+# 在仓库的上级目录执行（link: 引用仓库路径）
+cd ..
+dsh plugin --profile web add link:./dsh-workspace-toolbox
+```
+
+改 `src/` 后 `pnpm run build` 即可；Host 侧改动需重启 profile，Client 侧自动热更新。
+
+### 网络提示（可选）
+
+若无法直接访问 GitHub，请先为终端配置代理，例如：
+
+```bash
+export https_proxy=http://127.0.0.1:7897
+export http_proxy=http://127.0.0.1:7897
+```
+
+或手动下载 tar 包后在本地安装：
+
+```bash
+# 下载 https://github.com/wuyh/dsh-workspace-toolbox/archive/refs/tags/v0.3.0.tar.gz
+dsh plugin --profile web add ./dsh-workspace-toolbox-v0.3.0.tar.gz
+```
 
 ---
 
