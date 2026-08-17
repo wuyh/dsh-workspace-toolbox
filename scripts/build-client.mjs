@@ -36,10 +36,10 @@ const ts = require('typescript')
 const ROOT = resolve(import.meta.dirname, '..')
 const ENTRY = resolve(ROOT, 'src', 'client', 'index.ts')
 const OUTPUT = resolve(ROOT, 'lib', 'client.js')
-const PLUGIN_ID = 'dsh-workspace-files'
+const PLUGIN_ID = 'dsh-workspace-toolbox'
 
 /** 允许内联进 bundle 的第三方包（其余 specifier 透传给外层 ModuleLoader）。 */
-const INLINE_PACKAGES = new Set(['highlight.js', 'marked', 'dompurify'])
+const INLINE_PACKAGES = new Set(['highlight.js', 'marked', 'dompurify', 'xterm', '@xterm/addon-fit'])
 
 /** 'highlight.js/lib/core' → 'highlight.js'；'@scope/pkg/sub' → '@scope/pkg'。 */
 function packageOf(spec) {

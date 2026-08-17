@@ -1,15 +1,17 @@
 {
-  "name": "dsh-workspace-files",
-  "version": "0.2.0",
-  "description": "DSH Web 工作区文件管理器：面包屑目录浏览、全工作区搜索、VS Code 风格预览与语法高亮。",
+  "name": "dsh-workspace-toolbox",
+  "version": "0.3.0",
+  "description": "DSH Web 工作区工具箱：文件浏览、Docker 与 Vite 项目管控。",
   "type": "module",
   "license": "MIT",
   "keywords": [
     "dsh",
     "deepseek-harness",
     "web-ui",
-    "file-manager",
     "workspace",
+    "file-manager",
+    "docker",
+    "vite",
     "dsh-plugin"
   ],
   "main": "./lib/index.js",
@@ -49,6 +51,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^18.3.0",
     "@types/ssh2": "^1.15.5",
+    "@types/ws": "^8.18.1",
     "react": "^18.2.0",
     "typescript": "^5.6.0"
   },
@@ -65,9 +68,12 @@
     }
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
     "dompurify": "^3.4.13",
     "highlight.js": "^11.12.0",
     "marked": "^18.0.9",
-    "ssh2": "^1.17.0"
+    "ssh2": "^1.17.0",
+    "ws": "^8.21.3",
+    "xterm": "^5.3.0"
   }
 }

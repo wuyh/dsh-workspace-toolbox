@@ -2,7 +2,7 @@
  * Docker 服务的 HTTP 路由：连接管理、镜像/容器查询、长任务（拉取/构建/
  * 运行/停止/删除）与任务日志轮询、工作区 Dockerfile 项目扫描。
  *
- * 所有路由挂在 /dsh-workspace-files/docker/* 下，方法 GET/POST。
+ * 所有路由挂在 /dsh-workspace-toolbox/docker/* 下，方法 GET/POST。
  */
 import { spawn } from 'node:child_process'
 import type { Context } from '@deepseek-ai/cordis'
@@ -13,7 +13,7 @@ import { appendLog, createJob, finishJob, getJob, listJobs } from './jobs.js'
 import { backendOf, connect, disconnect, listConnections } from './manager.js'
 import { scanProjects } from './projects.js'
 
-const PREFIX = '/dsh-workspace-files/docker'
+const PREFIX = '/dsh-workspace-toolbox/docker'
 
 function json(res: WebResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })

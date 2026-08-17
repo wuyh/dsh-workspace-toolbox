@@ -12,6 +12,7 @@ import {
   type DockerJob,
   type DockerProject,
 } from './docker-rpc.js'
+import { TerminalView } from './docker-terminal.js'
 
 function fmtSize(n: number | undefined): string {
   if (typeof n !== 'number') return ''
@@ -67,6 +68,10 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
   const [form, setForm] = React.useState({ name: '', host: '', port: '22', username: '', authKind: 'password' as 'password' | 'key', password: '', keyPath: '~/.ssh/id_ed25519', passphrase: '' })
   const [connectError, setConnectError] = React.useState('')
   const [connecting, setConnecting] = React.useState(false)
+  const [rowError, setRowError] = React.useState('')
+  const [reconnectingId, setReconnectingId] = React.useState('')
+  /** 终端进入的容器 id（'' 表示连接自身的 shell）。 */
+  const [termContainer, setTermContainer] = React.useState('')
 
   const [buildDir, setBuildDir] = React.useState('')
   const [buildTag, setBuildTag] = React.useState('')
@@ -108,11 +113,13 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
     refreshJobs()
   }, [sid])
 
-  // 连接切换 / 页签打开时拉取对应列表。
+  // 连接切换 / 页签打开时拉取对应列表（未连接的连接不触发加载）。
   React.useEffect(() => {
+    const selected = (connections ?? []).find((c) => c.id === conn)
+    if (selected !== undefined && !selected.connected) return
     refreshImages()
     refreshContainers()
-  }, [conn])
+  }, [conn, connections])
   React.useEffect(() => {
     if (tab === 'images') refreshImages()
     if (tab === 'containers') refreshContainers()
@@ -161,6 +168,37 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
     }).catch(() => {})
   }
 
+  /**
+   * 重新连接一个已保存但未连接的 SSH 连接：用持久化的元数据重建 spec
+   * （私钥认证可直接重连；密码认证需重新走「＋ 远程」表单输入密码）。
+   */
+  const doReconnect = (c: DockerConnectionView): void => {
+    setRowError('')
+    setReconnectingId(c.id)
+    dockerRpc.connect({
+      id: c.id,
+      kind: 'ssh',
+      name: c.name,
+      host: c.host,
+      port: c.port,
+      username: c.username,
+      authKind: c.authKind,
+      keyPath: c.authKind === 'key' ? c.keyPath : undefined,
+    }).then((res) => {
+      setReconnectingId('')
+      if (res.ok) {
+        setConn(c.id)
+        refreshConnections()
+      } else {
+        const detail = (res as unknown as { message?: string }).message
+        setRowError(res.error + (detail !== undefined && detail !== '' ? '：' + detail : ''))
+      }
+    }).catch(() => {
+      setReconnectingId('')
+      setRowError('连接失败（网络或凭据错误）')
+    })
+  }
+
   const currentConn = (connections ?? []).find((c) => c.id === conn) ?? null
 
   const doBuild = (): void => {
@@ -195,7 +233,7 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
     const dot = c.connected ? '●' : '○'
     const dotCls = c.connected ? 'dshdc-dot dshdc-dot-on' : 'dshdc-dot'
     const engine = c.engine !== undefined && c.engine.version !== undefined ? ` · Docker ${c.engine.version}` : ''
-    return React.createElement('div', { key: c.id, className: c.id === conn ? 'dshdc-row dshdc-row-active' : 'dshdc-row', onClick: () => c.connected && setConn(c.id) },
+    return React.createElement('div', { key: c.id, className: c.id === conn ? 'dshdc-row dshdc-row-active' : 'dshdc-row', onClick: () => { setRowError(''); setConn(c.id) } },
       React.createElement('span', { className: dotCls }, dot),
       React.createElement('div', { className: 'dshdc-row-main' },
         React.createElement('div', { className: 'dshdc-row-name' }, c.name),
@@ -204,7 +242,12 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
       c.kind === 'ssh' ? React.createElement('div', { className: 'dshdc-row-actions' },
         c.connected
           ? React.createElement('button', { type: 'button', className: 'dshdc-mini', onClick: (e: { stopPropagation(): void }) => { e.stopPropagation(); doDisconnect(c.id, false) } }, '断开')
-          : null,
+          : React.createElement('button', {
+              type: 'button',
+              className: 'dshdc-mini',
+              disabled: reconnectingId === c.id,
+              onClick: (e: { stopPropagation(): void }) => { e.stopPropagation(); doReconnect(c) },
+            }, reconnectingId === c.id ? '连接中…' : '连接'),
         React.createElement('button', { type: 'button', className: 'dshdc-mini', onClick: (e: { stopPropagation(): void }) => { e.stopPropagation(); doDisconnect(c.id, true) } }, '删除'),
       ) : null,
     )
@@ -230,7 +273,20 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
 
   // ---- 主区 ----
   let content: ReactNode
-  if (tab === 'images') {
+  if (currentConn !== null && !currentConn.connected) {
+    // 选中了未连接的连接（如重启后）：提示并给出重新连接入口。
+    const cc = currentConn
+    content = React.createElement('div', { className: 'dshdc-center' },
+      React.createElement('div', null, '连接未建立（重启 web profile 后需重新连接）'),
+      React.createElement('button', {
+        type: 'button',
+        className: 'dshdc-btn',
+        style: { marginTop: 12 },
+        disabled: reconnectingId === cc.id,
+        onClick: () => doReconnect(cc),
+      }, reconnectingId === cc.id ? '连接中…' : '重新连接'),
+    )
+  } else if (tab === 'images') {
     if (images.phase === 'loading') content = React.createElement('div', { className: 'dshdc-center' }, '加载中…')
     else if (images.phase === 'error') content = React.createElement('div', { className: 'dshdc-center' }, '加载失败：' + images.error)
     else if (images.rows.length === 0) content = React.createElement('div', { className: 'dshdc-center' }, '暂无镜像（可先在“拉取”或“构建”中获取）')
@@ -251,6 +307,9 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
         React.createElement('span', { className: 'dshdc-list-state', 'data-state': c.State }, c.State === 'running' ? '运行中' : c.Status),
         React.createElement('span', { className: 'dshdc-list-meta' }, portsOf(c)),
         React.createElement('button', { type: 'button', className: 'dshdc-mini', onClick: () => doLogs(c.Id) }, '日志'),
+        c.State === 'running'
+          ? React.createElement('button', { type: 'button', className: 'dshdc-mini', onClick: () => { setTermContainer(c.Id); setTab('terminal') } }, '终端')
+          : null,
         c.State === 'running' ? React.createElement('button', { type: 'button', className: 'dshdc-mini', onClick: () => doStop(c.Id) }, '停止') : null,
         React.createElement('button', { type: 'button', className: 'dshdc-mini', onClick: () => doRemove(c.Id) }, '删除'),
       ),
@@ -258,6 +317,13 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
         ? React.createElement('pre', { className: 'dshdc-log' }, logs.phase === 'loading' ? '加载中…' : logs.text)
         : null,
     ))
+  } else if (tab === 'terminal') {
+    // 终端：SSH 连接进入服务器，本地连接打开本地 shell，或进入指定容器。
+    content = React.createElement(TerminalView, {
+      connectionId: conn,
+      name: (currentConn !== null ? currentConn.name : '终端') + (termContainer !== '' ? ' · ' + termContainer.slice(0, 12) : ''),
+      container: termContainer !== '' ? termContainer : undefined,
+    })
   } else {
     if (jobs.length === 0) content = React.createElement('div', { className: 'dshdc-center' }, '暂无任务')
     else content = jobs.map((job) => React.createElement('div', { key: job.id, className: 'dshdc-job', 'data-status': job.status },
@@ -301,6 +367,7 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
           React.createElement('button', { type: 'button', className: 'dshdc-btn', disabled: connecting, onClick: doConnect }, connecting ? '连接中…' : '连接'),
         ) : null,
         React.createElement('div', { className: 'dshdc-side-list' }, connectionRows),
+        rowError !== '' ? React.createElement('div', { className: 'dshdc-error', style: { padding: '4px 10px 8px' } }, rowError) : null,
         React.createElement('div', { className: 'dshdc-side-head' }, React.createElement('span', null, '工作区项目（含 Dockerfile）')),
         React.createElement('div', { className: 'dshdc-side-list' },
           projects === null ? React.createElement('div', { className: 'dshdc-center' }, '扫描中…') : projectRows.length > 0 ? projectRows : React.createElement('div', { className: 'dshdc-center' }, '未发现 Dockerfile 项目'),
@@ -308,16 +375,19 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
       ),
       React.createElement('div', { className: 'dshdc-body' },
         React.createElement('div', { className: 'dshdc-bar' },
-          React.createElement('span', { className: 'dshdc-title' }, currentConn !== null ? currentConn.name : 'Docker'),
+          React.createElement('span', { className: 'dshdc-title' },
+          tab === 'terminal' && termContainer !== ''
+            ? '终端 · ' + termContainer.slice(0, 12)
+            : (currentConn !== null ? currentConn.name : 'Docker')),
           currentConn !== null && currentConn.connected && currentConn.engine !== undefined && currentConn.engine.version !== undefined
             ? React.createElement('span', { className: 'dshdc-list-meta' }, 'Docker ' + currentConn.engine.version)
             : React.createElement('span', { className: 'dshdc-list-meta' }, currentConn !== null && !currentConn.connected ? '未连接' : ''),
           React.createElement('span', { className: 'dshdc-spacer' }),
-          ['images', 'containers', 'jobs'].map((t) => React.createElement('button', {
+          ['images', 'containers', 'jobs', 'terminal'].map((t) => React.createElement('button', {
             key: t, type: 'button',
             className: tab === t ? 'dshdc-btn dshdc-btn-on' : 'dshdc-btn',
-            onClick: () => setTab(t),
-          }, t === 'images' ? '镜像' : t === 'containers' ? '容器' : '任务')),
+            onClick: () => { if (t === 'terminal') setTermContainer(''); setTab(t) },
+          }, t === 'images' ? '镜像' : t === 'containers' ? '容器' : t === 'jobs' ? '任务' : '终端')),
         ),
         React.createElement('div', { className: 'dshdc-actions' },
           React.createElement('span', { className: 'dshdc-actions-label' }, '构建'),
@@ -342,7 +412,9 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
           input(runEnv, '环境变量 KEY=VALUE', setRunEnv, 150),
           React.createElement('button', { type: 'button', className: 'dshdc-btn', disabled: runImage.trim() === '', onClick: doRun }, '运行'),
         ),
-        React.createElement('div', { className: 'dshdc-content' }, content),
+        tab === 'terminal'
+          ? React.createElement('div', { className: 'dshdc-terminal' }, content)
+          : React.createElement('div', { className: 'dshdc-content' }, content),
       ),
   )
 }

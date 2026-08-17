@@ -47,7 +47,7 @@ interface RuntimeConnection {
   apiVersion?: string
 }
 
-const STORE_PATH = join(homedir(), '.dsh', 'storages', 'dsh-workspace-files', 'docker-connections.json')
+const STORE_PATH = join(homedir(), '.dsh', 'storages', 'dsh-workspace-toolbox', 'docker-connections.json')
 
 const runtime = new Map<string, RuntimeConnection>()
 

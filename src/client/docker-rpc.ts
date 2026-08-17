@@ -51,7 +51,7 @@ export interface DockerJob {
   createdAt: number
 }
 
-const PREFIX = '/dsh-workspace-files/docker'
+const PREFIX = '/dsh-workspace-toolbox/docker'
 
 async function get<T>(route: string): Promise<DockerResult<T>> {
   const res = await fetch(route)

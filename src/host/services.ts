@@ -66,8 +66,15 @@ export interface WebRoute {
   handler: (req: WebRequest, res: WebResponse) => void | Promise<void>
 }
 
+export interface WebUpgradeRoute {
+  path: string
+  /** 升级路由：拥有协议协商与升级后的 socket（WebSocket 等）。 */
+  handler: (req: import('node:http').IncomingMessage, socket: import('node:stream').Duplex, head: Buffer) => void | Promise<void>
+}
+
 export interface WebServerService {
   register(route: WebRoute): () => void
+  registerUpgrade(route: WebUpgradeRoute): () => void
 }
 
 export interface SessionsService {

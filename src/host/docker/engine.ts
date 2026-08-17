@@ -6,7 +6,9 @@
  * 停止/删除/日志。
  */
 import http from 'node:http'
-import type { IncomingMessage } from 'node:http'
+import net from 'node:net'
+import type { ClientRequest, IncomingMessage } from 'node:http'
+import type { Duplex } from 'node:stream'
 import type { Client } from 'ssh2'
 import { dockerSocket } from './ssh-tunnel.js'
 
@@ -45,6 +47,72 @@ async function readAll(stream: IncomingMessage): Promise<Buffer> {
   const chunks: Buffer[] = []
   for await (const chunk of stream) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   return Buffer.concat(chunks)
+}
+
+/**
+ * 打开一个 exec 的双向原始流（docker exec/start 的 hijack 语义）。
+ *
+ * 关键：exec/start 是 hijack 协议——请求体必须是带 `Content-Length` 的完整
+ * JSON（Node http.request 默认 chunked 会让 Docker 不响应），响应头之后
+ * 连接变为原始双向流：请求侧写 stdin，响应侧读 stdout+stderr（Tty 无帧头）。
+ * 因此这里**手写原始 HTTP 握手**（走 ssh 隧道或本地 unix socket），
+ * 返回已越过响应头的 socket 与首段残留输出。
+ */
+export interface ExecStreamHandle {
+  socket: Duplex
+  statusCode: number
+  /** 响应头之后已到达的残留字节（hijack 首段输出）。 */
+  initial: Buffer
+}
+
+export function execStream(backend: DockerBackend, execId: string): Promise<ExecStreamHandle> {
+  return new Promise((resolve, reject) => {
+    let socket: Duplex
+    try {
+      socket = backend.kind === 'local'
+        ? net.connect({ path: LOCAL_SOCKET })
+        : dockerSocket(backend.conn, REMOTE_SOCKET)
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)))
+      return
+    }
+    const config = Buffer.from(JSON.stringify({ Detach: false, Tty: true }))
+    const head = `POST /exec/${execId}/start HTTP/1.1\r\nHost: docker\r\nContent-Type: application/json\r\nContent-Length: ${config.length}\r\n\r\n`
+    let buffer = Buffer.alloc(0)
+    let settled = false
+    const fail = (error: Error): void => {
+      if (settled) return
+      settled = true
+      try { socket.destroy() } catch { /* 忽略 */ }
+      reject(error)
+    }
+    socket.on('error', (e: Error) => fail(e))
+    socket.on('data', (d: Buffer) => {
+      if (settled) return
+      buffer = Buffer.concat([buffer, d])
+      const idx = buffer.indexOf('\r\n\r\n')
+      if (idx === -1) return
+      const headerText = buffer.subarray(0, idx).toString('utf8')
+      const statusLine = headerText.split('\r\n')[0] ?? ''
+      const m = /^HTTP\/\d\.\d\s+(\d+)/.exec(statusLine)
+      const statusCode = m !== null ? Number.parseInt(m[1], 10) : 0
+      const rest = buffer.subarray(idx + 4)
+      buffer = Buffer.alloc(0)
+      if (statusCode >= 200 && statusCode < 300) {
+        settled = true
+        socket.removeAllListeners('data')
+        resolve({ socket, statusCode, initial: rest })
+      } else {
+        let errBody = rest.toString('utf8')
+        socket.on('data', (e2: Buffer) => { errBody += e2.toString('utf8') })
+        const finishErr = (): void => fail(new Error(`docker exec/start -> HTTP ${statusCode}: ${errBody.slice(0, 400)}`))
+        socket.once('close', finishErr)
+        socket.once('end', finishErr)
+      }
+    })
+    socket.write(head)
+    socket.write(config)
+  })
 }
 
 /** 普通 JSON 请求；非 2xx 抛 DockerError。 */
@@ -192,6 +260,14 @@ export const docker = {
     return demuxDockerLogs(buf)
   },
   removeImage: (b: DockerBackend, id: string) => dockerJson<unknown>(b, 'DELETE', `/images/${id}?force=1`),
+  createExec: (b: DockerBackend, id: string, cmd: string[]) => dockerJson<{ Id: string }>(b, 'POST', `/containers/${id}/exec`, {
+    AttachStdin: true,
+    AttachStdout: true,
+    AttachStderr: true,
+    Tty: true,
+    Cmd: cmd,
+  }),
+  resizeExec: (b: DockerBackend, id: string, rows: number, cols: number) => dockerJson<unknown>(b, 'POST', `/exec/${id}/resize?h=${rows}&w=${cols}`),
   pull: (b: DockerBackend, image: string, onLine: (l: string) => void) => {
     const [name, tag] = image.includes(':') ? image.split(':', 2) : [image, 'latest']
     const query = `fromImage=${encodeURIComponent(name ?? image)}&tag=${encodeURIComponent(tag ?? 'latest')}`

@@ -1,8 +1,8 @@
-# dsh-workspace-files bundle patch: mount the plugin's Host half into a DSH
+# dsh-workspace-toolbox bundle patch: mount the plugin's Host half into a DSH
 # profile. The `id` is the plugin row identity; `name` resolves to this
 # package's Host entry (lib/index.js via package.json `main`/`exports["."]`).
 # The browser half is declared in package.json via `dsh.client` and mounted by
 # the client-modules kernel from lib/client.js — no extra row is needed here.
 - insert:
-    - id: dsh-workspace-files
-      name: dsh-workspace-files
+    - id: dsh-workspace-toolbox
+      name: dsh-workspace-toolbox
