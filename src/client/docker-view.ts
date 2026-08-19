@@ -72,6 +72,10 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
   const [reconnectingId, setReconnectingId] = React.useState('')
   /** 终端进入的容器 id（'' 表示连接自身的 shell）。 */
   const [termContainer, setTermContainer] = React.useState('')
+  /** 项目候选面板（「＋ 添加」）。 */
+  const [showCandidates, setShowCandidates] = React.useState(false)
+  const [candidates, setCandidates] = React.useState<DockerProject[] | null>(null)
+  const [addingRel, setAddingRel] = React.useState('')
 
   const [buildDir, setBuildDir] = React.useState('')
   const [buildTag, setBuildTag] = React.useState('')
@@ -265,6 +269,45 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
     ),
   ))
 
+  const refreshCandidates = (): void => {
+    setCandidates(null)
+    dockerRpc.projectsCandidates(sid).then((res) => {
+      setCandidates(res.ok ? res.projects : [])
+    }).catch(() => setCandidates([]))
+  }
+  const doAddProject = (c: DockerProject): void => {
+    setAddingRel(c.rel)
+    dockerRpc.projectAdd(sid, c.rel).then((res) => {
+      setAddingRel('')
+      if (res.ok) {
+        setProjects(res.projects)
+        setCandidates((prev) => (prev ?? []).map((x) => x.rel === c.rel ? { ...x } : x))
+      } else {
+        setRowError('添加失败：' + res.error)
+      }
+    }).catch(() => { setAddingRel(''); setRowError('添加失败（网络或命令错误）') })
+  }
+
+  const addedRels = new Set((projects ?? []).map((p) => p.rel))
+  const candidateRows = (candidates ?? []).map((c) => {
+    const added = addedRels.has(c.rel)
+    return React.createElement('div', {
+      key: c.rel,
+      className: 'dshdc-row',
+      onClick: () => { if (!added && addingRel !== c.rel) doAddProject(c) },
+      title: c.dir,
+    },
+      React.createElement('div', { className: 'dshdc-row-main' },
+        React.createElement('div', { className: 'dshdc-row-name' }, c.name),
+        React.createElement('div', { className: 'dshdc-row-sub' }, c.rel),
+      ),
+      React.createElement('span', { className: 'dshdc-list-state' },
+        added ? '已添加'
+          : addingRel === c.rel ? '添加中…'
+            : React.createElement('button', { type: 'button', className: 'dshdc-mini', onClick: (e: { stopPropagation(): void }) => { e.stopPropagation(); doAddProject(c) } }, '添加')),
+    )
+  })
+
   const input = (value: string, placeholder: string, onChange: (v: string) => void, width: number | string = 140): ReactNode => React.createElement('input', {
     className: 'dshdc-input', value, placeholder,
     style: { width },
@@ -368,7 +411,21 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
         ) : null,
         React.createElement('div', { className: 'dshdc-side-list' }, connectionRows),
         rowError !== '' ? React.createElement('div', { className: 'dshdc-error', style: { padding: '4px 10px 8px' } }, rowError) : null,
-        React.createElement('div', { className: 'dshdc-side-head' }, React.createElement('span', null, '工作区项目（含 Dockerfile）')),
+        React.createElement('div', { className: 'dshdc-side-head' },
+          React.createElement('span', null, '工作区项目（含 Dockerfile）'),
+          React.createElement('button', {
+            type: 'button',
+            className: 'dshdc-mini',
+            onClick: () => { if (!showCandidates) refreshCandidates(); setShowCandidates((v) => !v) },
+          }, showCandidates ? '收起' : '＋ 添加'),
+        ),
+        showCandidates ? React.createElement('div', { className: 'dshdc-cand-list' },
+          candidates === null
+            ? React.createElement('div', { className: 'dshdc-center' }, '扫描中…')
+            : candidates.length === 0
+              ? React.createElement('div', { className: 'dshdc-center' }, '未发现其他 Dockerfile 模块')
+              : candidateRows,
+        ) : null,
         React.createElement('div', { className: 'dshdc-side-list' },
           projects === null ? React.createElement('div', { className: 'dshdc-center' }, '扫描中…') : projectRows.length > 0 ? projectRows : React.createElement('div', { className: 'dshdc-center' }, '未发现 Dockerfile 项目'),
         ),

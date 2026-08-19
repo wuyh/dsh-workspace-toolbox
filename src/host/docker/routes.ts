@@ -11,7 +11,7 @@ import { resolveRoot } from '../workspace.js'
 import { docker, formatDockerProgress } from './engine.js'
 import { appendLog, createJob, finishJob, getJob, listJobs } from './jobs.js'
 import { backendOf, connect, disconnect, listConnections } from './manager.js'
-import { scanProjects } from './projects.js'
+import { addWorkspaceProject, listWorkspaceProjects, scanAllDockerfileModules } from './projects.js'
 
 const PREFIX = '/dsh-workspace-toolbox/docker'
 
@@ -62,7 +62,7 @@ function runDetached(runner: (jobId: string) => Promise<void>, jobId: string): v
 }
 
 export function registerDockerRoutes(ctx: Context): void {
-  // GET /docker/projects?session=<id> → 工作区 Dockerfile 项目
+  // GET /docker/projects?session=<id> → 工作区 Dockerfile 项目（自动扫描 ∪ 已添加）
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: PREFIX + '/projects',
@@ -71,9 +71,48 @@ export function registerDockerRoutes(ctx: Context): void {
         const u = new URL(req.url ?? '/', 'http://localhost')
         const resolved = await resolveRoot(ctx, u.searchParams.get('session') ?? '')
         if ('error' in resolved) return json(res, 200, { ok: false, error: resolved.error })
-        json(res, 200, { ok: true, projects: scanProjects(resolved.rootPath) })
+        json(res, 200, { ok: true, projects: listWorkspaceProjects(resolved.rootPath) })
       } catch (error) {
         json(res, 200, { ok: false, error: 'SCAN_FAILED', message: messageOf(error) })
+      }
+    },
+  }))
+
+  // GET /docker/projects/candidates?session=<id> → 深层全量 Dockerfile 模块候选
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: PREFIX + '/projects/candidates',
+    handler: async (req, res) => {
+      try {
+        const u = new URL(req.url ?? '/', 'http://localhost')
+        const resolved = await resolveRoot(ctx, u.searchParams.get('session') ?? '')
+        if ('error' in resolved) return json(res, 200, { ok: false, error: resolved.error })
+        json(res, 200, { ok: true, projects: scanAllDockerfileModules(resolved.rootPath) })
+      } catch (error) {
+        json(res, 200, { ok: false, error: 'SCAN_FAILED', message: messageOf(error) })
+      }
+    },
+  }))
+
+  // POST /docker/projects/add { session, dir } → 添加项目并持久化
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: PREFIX + '/projects/add',
+    handler: async (req, res) => {
+      try {
+        const body = await readJsonBody(req)
+        const resolved = await resolveRoot(ctx, str(body.session))
+        if ('error' in resolved) return json(res, 200, { ok: false, error: resolved.error })
+        const rel = str(body.dir).trim()
+        if (rel === '') return json(res, 200, { ok: false, error: 'INVALID_DIR' })
+        // 目录必须位于工作区之内。
+        const target = await ctx.fs.resolve(rel, { cwd: resolved.rootPath })
+        if (!ctx.fs.contains(resolved.root, target)) return json(res, 200, { ok: false, error: 'OUT_OF_BOUNDS' })
+        const result = addWorkspaceProject(resolved.rootPath, rel)
+        if (!result.ok) return json(res, 200, { ok: false, error: result.error })
+        json(res, 200, { ok: true, projects: result.projects })
+      } catch (error) {
+        json(res, 200, { ok: false, error: 'ADD_FAILED', message: messageOf(error) })
       }
     },
   }))
