@@ -21,10 +21,12 @@ export interface DockerConnectionView {
 
 export interface DockerProject {
   name: string
-  /** 相对工作区根的路径（唯一标识）。 */
+  /** 相对工作区根的路径或绝对路径（唯一标识）。 */
   rel: string
   dir: string
   dockerfile: string
+  /** 来自「已添加」列表（非自动扫描）。 */
+  added?: boolean
 }
 
 export interface DockerImageRow {
@@ -72,7 +74,8 @@ async function post<T>(route: string, body: Record<string, unknown>): Promise<Do
 export const dockerRpc = {
   projects: (session: string) => get<{ projects: DockerProject[] }>(PREFIX + '/projects?session=' + encodeURIComponent(session)),
   projectsCandidates: (session: string) => get<{ projects: DockerProject[] }>(PREFIX + '/projects/candidates?session=' + encodeURIComponent(session)),
-  projectAdd: (session: string, dir: string) => post<{ projects: DockerProject[] }>(PREFIX + '/projects/add', { session, dir }),
+  projectAdd: (session: string, path: string) => post<{ projects: DockerProject[] }>(PREFIX + '/projects/add', { session, path }),
+  projectRemove: (session: string, path: string) => post<{ projects: DockerProject[] }>(PREFIX + '/projects/remove', { session, path }),
   connections: () => get<{ connections: DockerConnectionView[] }>(PREFIX + '/connections'),
   connect: (spec: Record<string, unknown>) => post<{ connection: DockerConnectionView }>(PREFIX + '/connect', { spec }),
   disconnect: (id: string, forget: boolean) => post<Record<string, never>>(PREFIX + '/disconnect', { id, forget }),

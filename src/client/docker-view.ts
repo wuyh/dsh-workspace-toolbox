@@ -76,6 +76,8 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
   const [showCandidates, setShowCandidates] = React.useState(false)
   const [candidates, setCandidates] = React.useState<DockerProject[] | null>(null)
   const [addingRel, setAddingRel] = React.useState('')
+  /** 按绝对路径添加的输入框。 */
+  const [addPath, setAddPath] = React.useState('')
 
   const [buildDir, setBuildDir] = React.useState('')
   const [buildTag, setBuildTag] = React.useState('')
@@ -267,6 +269,9 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
       React.createElement('div', { className: 'dshdc-row-name' }, p.name),
       React.createElement('div', { className: 'dshdc-row-sub' }, p.dir),
     ),
+    p.added === true
+      ? React.createElement('button', { type: 'button', className: 'dshdc-mini', onClick: (e: { stopPropagation(): void }) => { e.stopPropagation(); doRemoveProject(p.rel) } }, '移除')
+      : null,
   ))
 
   const refreshCandidates = (): void => {
@@ -287,10 +292,31 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
       }
     }).catch(() => { setAddingRel(''); setRowError('添加失败（网络或命令错误）') })
   }
+  /** 按绝对路径添加任意目录下的 Dockerfile 项目。 */
+  const doAddPath = (): void => {
+    const path = addPath.trim()
+    if (path === '') return
+    setAddingRel(path)
+    dockerRpc.projectAdd(sid, path).then((res) => {
+      setAddingRel('')
+      if (res.ok) {
+        setProjects(res.projects)
+        setAddPath('')
+      } else {
+        setRowError('添加失败：' + res.error)
+      }
+    }).catch(() => { setAddingRel(''); setRowError('添加失败（网络或命令错误）') })
+  }
+  const doRemoveProject = (path: string): void => {
+    dockerRpc.projectRemove(sid, path).then((res) => {
+      if (res.ok) setProjects(res.projects)
+      else setRowError('移除失败：' + res.error)
+    }).catch(() => setRowError('移除失败（网络或命令错误）'))
+  }
 
-  const addedRels = new Set((projects ?? []).map((p) => p.rel))
+  const addedDirs = new Set((projects ?? []).map((p) => p.dir))
   const candidateRows = (candidates ?? []).map((c) => {
-    const added = addedRels.has(c.rel)
+    const added = addedDirs.has(c.dir)
     return React.createElement('div', {
       key: c.rel,
       className: 'dshdc-row',
@@ -420,6 +446,22 @@ export function DockerPanel(props: DockerViewProps): ReactNode {
           }, showCandidates ? '收起' : '＋ 添加'),
         ),
         showCandidates ? React.createElement('div', { className: 'dshdc-cand-list' },
+          React.createElement('div', { className: 'dshdc-form' },
+            React.createElement('input', {
+              className: 'dshdc-input',
+              style: { width: '100%' },
+              value: addPath,
+              placeholder: '输入绝对路径，如 D:\\repo\\proj',
+              onChange: (e: { target: { value: string } }) => setAddPath(e.target.value),
+              onKeyDown: (e: { key: string }) => { if (e.key === 'Enter') doAddPath() },
+            }),
+            React.createElement('button', {
+              type: 'button',
+              className: 'dshdc-btn',
+              disabled: addPath.trim() === '' || addingRel !== '',
+              onClick: doAddPath,
+            }, addingRel !== '' && addingRel === addPath.trim() ? '添加中…' : '添加路径'),
+          ),
           candidates === null
             ? React.createElement('div', { className: 'dshdc-center' }, '扫描中…')
             : candidates.length === 0

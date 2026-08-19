@@ -22,10 +22,12 @@ const ADDED_STORE = join(homedir(), '.dsh', 'storages', 'dsh-workspace-toolbox',
 
 export interface DockerProject {
   name: string
-  /** 相对工作区根的路径（唯一标识）。 */
+  /** 相对工作区根的路径或绝对路径（唯一标识）。 */
   rel: string
   dir: string
   dockerfile: string
+  /** 来自「已添加」列表（非自动扫描）。 */
+  added?: boolean
 }
 
 function isDirectory(path: string): boolean {
@@ -122,33 +124,59 @@ function saveAddedRels(rels: string[]): void {
   }
 }
 
+/** 判断是否为绝对路径（Windows 盘符或 POSIX 根）。 */
+function isAbsolutePath(p: string): boolean {
+  return /^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('/')
+}
+
 /** 合并列表：浅层自动扫描 ∪ 已添加（目录被删/不再含 Dockerfile 的自动剔除）。 */
 export function listWorkspaceProjects(root: string): DockerProject[] {
-  const auto = scanProjects(root)
-  const seen = new Set(auto.map((p) => p.rel))
+  const auto = scanProjects(root).map((p) => ({ ...p, added: false }))
+  const seenDirs = new Set(auto.map((p) => p.dir))
   const out = [...auto]
-  for (const rel of loadAddedRels()) {
-    if (seen.has(rel)) continue
-    const abs = join(root, rel)
+  for (const entry of loadAddedRels()) {
+    const abs = isAbsolutePath(entry) ? entry : join(root, entry)
     if (!isDirectory(abs) || !hasDockerfile(abs)) continue
-    out.push(toProject(rel, abs))
-    seen.add(rel)
+    if (seenDirs.has(abs)) continue
+    const name = entry.split(/[\\/]/).filter(Boolean).pop() ?? entry
+    out.push({ name, rel: entry, dir: abs, dockerfile: join(abs, 'Dockerfile'), added: true })
+    seenDirs.add(abs)
   }
   out.sort((a, b) => a.name.localeCompare(b.name))
   return out
 }
 
-/** 添加一个项目（相对路径）到持久化列表；返回更新后的合并列表。 */
-export function addWorkspaceProject(root: string, rel: string): { ok: true, projects: DockerProject[] } | { ok: false, error: string } {
-  const clean = rel.replace(/^[\\/]+/, '')
-  if (clean === '' || clean.includes('..') || clean.includes(':')) return { ok: false, error: 'INVALID_DIR' }
-  const abs = join(root, clean)
+/**
+ * 添加一个项目到持久化列表（支持工作区相对路径或任意绝对路径）；
+ * 返回更新后的合并列表。
+ */
+export function addWorkspaceProject(root: string, path: string): { ok: true, projects: DockerProject[] } | { ok: false, error: string } {
+  const clean = path.trim().replace(/^["']+|["']+$/g, '')
+  if (clean === '') return { ok: false, error: 'INVALID_DIR' }
+  const abs = isAbsolutePath(clean) ? clean : join(root, clean.replace(/^[\\/]+/, ''))
   if (!isDirectory(abs)) return { ok: false, error: 'NOT_FOUND' }
   if (!hasDockerfile(abs)) return { ok: false, error: 'NO_DOCKERFILE' }
+  const entry = isAbsolutePath(clean) ? clean : clean.replace(/^[\\/]+/, '')
   const rels = loadAddedRels()
-  if (!rels.includes(clean)) {
-    rels.push(clean)
+  if (!rels.includes(entry)) {
+    rels.push(entry)
     saveAddedRels(rels)
   }
+  return { ok: true, projects: listWorkspaceProjects(root) }
+}
+
+/** 从持久化列表移除一个项目（支持相对/绝对路径）；返回更新后的合并列表。 */
+export function removeWorkspaceProject(root: string, path: string): { ok: true, projects: DockerProject[] } | { ok: false, error: string } {
+  const clean = path.trim().replace(/^["']+|["']+$/g, '')
+  if (clean === '') return { ok: false, error: 'INVALID_PATH' }
+  const abs = isAbsolutePath(clean) ? clean : join(root, clean)
+  const rels = loadAddedRels()
+  const next = rels.filter((e) => {
+    if (e === clean) return false
+    const eAbs = isAbsolutePath(e) ? e : join(root, e)
+    return eAbs !== abs
+  })
+  if (next.length === rels.length) return { ok: false, error: 'NOT_ADDED' }
+  saveAddedRels(next)
   return { ok: true, projects: listWorkspaceProjects(root) }
 }
